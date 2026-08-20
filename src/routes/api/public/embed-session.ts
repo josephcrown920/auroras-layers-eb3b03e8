@@ -1,9 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  allowedEmbedOrigins,
-  embedCorsHeaders,
-  normalizeHttpOrigin,
-} from "@/lib/embedCors";
+import { embedCorsHeaders, isAllowedEmbedOrigin, normalizeEmbedOrigin } from "@/lib/embedCors";
 
 /**
  * Token-based SSO for the Aurora Layers embed.
@@ -15,14 +11,14 @@ import {
  * screen, and without the host sharing passwords.
  *
  * Token format:  base64url(JSON payload) + "." + hex(HMAC-SHA256)
- * Payload:       { sub: string, email: string, name?: string, aud?: string, exp: number }
+ * Payload:       { sub: string, email: string, name?: string, aud: string, exp: number }
  */
 
 type Payload = {
   sub: string;
   email: string;
   name?: string;
-  aud?: string;
+  aud: string;
   exp: number;
 };
 
@@ -45,6 +41,10 @@ function hexEncode(buffer: ArrayBuffer): string {
     .join("");
 }
 
+async function sha256Hex(value: string): Promise<string> {
+  return hexEncode(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+}
+
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -53,6 +53,8 @@ function timingSafeEqual(a: string, b: string): boolean {
   }
   return diff === 0;
 }
+
+const MAX_TOKEN_TTL_MS = 5 * 60 * 1000;
 
 async function verifyToken(token: string, secret: string): Promise<Payload | null> {
   const parts = token.split(".");
@@ -86,11 +88,14 @@ async function verifyToken(token: string, secret: string): Promise<Payload | nul
     typeof payload.sub !== "string" ||
     payload.sub.length === 0 ||
     payload.sub.length > 256 ||
-    (payload.name !== undefined && (typeof payload.name !== "string" || payload.name.length > 120)) ||
-    (payload.aud !== undefined && !normalizeHttpOrigin(payload.aud)) ||
+    (payload.name !== undefined &&
+      (typeof payload.name !== "string" || payload.name.length > 120)) ||
+    typeof payload.aud !== "string" ||
+    !normalizeEmbedOrigin(payload.aud) ||
     typeof payload.exp !== "number" ||
     !Number.isFinite(payload.exp) ||
-    payload.exp * 1000 < Date.now()
+    payload.exp * 1000 <= Date.now() ||
+    payload.exp * 1000 > Date.now() + MAX_TOKEN_TTL_MS
   ) {
     return null;
   }
@@ -103,7 +108,8 @@ const MAX_TRACKED_CLIENTS = 2_000;
 const attempts = new Map<string, { count: number; resetAt: number }>();
 
 function clientAddress(request: Request): string {
-  const forwarded = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for");
+  const forwarded =
+    request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for");
   return forwarded?.split(",")[0]?.trim() || "unknown";
 }
 
@@ -131,7 +137,10 @@ export const Route = createFileRoute("/api/public/embed-session")({
   server: {
     handlers: {
       OPTIONS: ({ request }) =>
-        new Response(null, { status: 204, headers: embedCorsHeaders(request.headers.get("origin")) }),
+        new Response(null, {
+          status: 204,
+          headers: embedCorsHeaders(request.headers.get("origin")),
+        }),
 
       POST: async ({ request }) => {
         const origin = request.headers.get("origin");
@@ -142,14 +151,17 @@ export const Route = createFileRoute("/api/public/embed-session")({
 
         const tooManyRequests = rateLimitHeaders(request);
         if (tooManyRequests) {
-          return new Response(JSON.stringify({ error: "Too many session requests. Try again shortly." }), {
-            status: 429,
-            headers: {
-              "Content-Type": "application/json",
-              ...embedCorsHeaders(origin),
-              ...tooManyRequests,
+          return new Response(
+            JSON.stringify({ error: "Too many session requests. Try again shortly." }),
+            {
+              status: 429,
+              headers: {
+                "Content-Type": "application/json",
+                ...embedCorsHeaders(origin),
+                ...tooManyRequests,
+              },
             },
-          });
+          );
         }
 
         const contentLength = Number(request.headers.get("content-length") ?? "0");
@@ -164,21 +176,36 @@ export const Route = createFileRoute("/api/public/embed-session")({
           return json({ error: "Invalid JSON body." }, 400, origin);
         }
         const token = typeof body.token === "string" ? body.token : "";
-        const hostOrigin = normalizeHttpOrigin(body.hostOrigin);
+        const hostOrigin = normalizeEmbedOrigin(body.hostOrigin);
         if (token.length === 0 || token.length > 8192) {
           return json({ error: "A valid token is required." }, 400, origin);
         }
-        if (!hostOrigin || !allowedEmbedOrigins().includes(hostOrigin)) {
+        if (!hostOrigin || !isAllowedEmbedOrigin(hostOrigin)) {
           return json({ error: "This host is not approved for embed SSO." }, 403, origin);
         }
 
         const payload = await verifyToken(token, secret);
         if (!payload) return json({ error: "Invalid or expired SSO token." }, 401, origin);
-        if (payload.aud && normalizeHttpOrigin(payload.aud) !== hostOrigin) {
+        if (normalizeEmbedOrigin(payload.aud) !== hostOrigin) {
           return json({ error: "SSO token audience does not match this host." }, 401, origin);
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { error: tokenUseError } = await supabaseAdmin
+          .from("aurora_embed_sso_tokens")
+          .insert({
+            token_hash: await sha256Hex(token),
+            host_origin: hostOrigin,
+            expires_at: new Date(payload.exp * 1000).toISOString(),
+          });
+
+        if (tokenUseError) {
+          if (tokenUseError.code === "23505") {
+            return json({ error: "This SSO token has already been used." }, 409, origin);
+          }
+          console.error("Could not reserve Aurora embed SSO token.", tokenUseError);
+          return json({ error: "Could not establish an embed session." }, 503, origin);
+        }
 
         // Create the user on first sight; ignore "already registered".
         await supabaseAdmin.auth.admin.createUser({
@@ -200,11 +227,7 @@ export const Route = createFileRoute("/api/public/embed-session")({
           return json({ error: "Could not establish an embed session." }, 500, origin);
         }
 
-        return json(
-          { email: payload.email, tokenHash: data.properties.hashed_token },
-          200,
-          origin,
-        );
+        return json({ email: payload.email, tokenHash: data.properties.hashed_token }, 200, origin);
       },
     },
   },

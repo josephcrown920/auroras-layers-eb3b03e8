@@ -31,6 +31,11 @@ function originFor(src: string) {
   }
 }
 
+function normalizedHeight(value: number, fallback: number, minimum: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(Math.ceil(value), minimum), 200000);
+}
+
 export type AuroraLayersEmbedProps = {
   /** Absolute URL of the deployed Aurora Layers /embed route. */
   src: string;
@@ -64,15 +69,20 @@ export function AuroraLayersEmbed({
   children,
 }: AuroraLayersEmbedProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(Math.max(initialHeight, minHeight));
+  const safeMinHeight = useMemo(() => normalizedHeight(minHeight, 360, 1), [minHeight]);
+  const safeInitialHeight = useMemo(
+    () => normalizedHeight(initialHeight, 1400, safeMinHeight),
+    [initialHeight, safeMinHeight],
+  );
+  const [height, setHeight] = useState(safeInitialHeight);
   const [ready, setReady] = useState(false);
   const embedSrc = useMemo(() => addHostOrigin(src), [src]);
   const iframeOrigin = useMemo(() => originFor(embedSrc), [embedSrc]);
 
   useEffect(() => {
-    setHeight(Math.max(initialHeight, minHeight));
+    setHeight(safeInitialHeight);
     setReady(false);
-  }, [initialHeight, minHeight, embedSrc]);
+  }, [safeInitialHeight, embedSrc]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<EmbedMessage>) => {
@@ -89,8 +99,12 @@ export function AuroraLayersEmbed({
 
       if (data.type === "ready") {
         setReady(true);
-      } else if (data.type === "height" && typeof data.height === "number") {
-        setHeight(Math.min(Math.max(Math.ceil(data.height), minHeight), 200000));
+      } else if (
+        data.type === "height" &&
+        typeof data.height === "number" &&
+        Number.isFinite(data.height)
+      ) {
+        setHeight(normalizedHeight(data.height, safeMinHeight, safeMinHeight));
       } else if (
         data.type === "auth" &&
         (data.status === "authenticated" || data.status === "error")
@@ -101,7 +115,7 @@ export function AuroraLayersEmbed({
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [iframeOrigin, minHeight, onAuth]);
+  }, [iframeOrigin, safeMinHeight, onAuth]);
 
   useEffect(() => {
     if (!ready || !ssoToken || !iframeOrigin || !frameRef.current?.contentWindow) {
@@ -124,7 +138,7 @@ export function AuroraLayersEmbed({
         allow="clipboard-write; camera"
         referrerPolicy="strict-origin-when-cross-origin"
         className="block w-full overflow-hidden rounded-3xl border-0 bg-[#0b0614]"
-        style={{ height, ...style }}
+        style={{ ...style, height }}
       />
       {children}
     </div>

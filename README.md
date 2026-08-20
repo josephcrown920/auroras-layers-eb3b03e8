@@ -106,8 +106,9 @@ SSO token in the iframe URL.
 ### 3. Sign a short-lived SSO token in the host
 
 Store the same `AURORA_EMBED_SSO_SECRET` in the host and Layers deployment.
-Never expose it in browser code. The payload must contain `sub`, `email`, and
-an `exp` Unix timestamp; `aud` should be the host's exact origin.
+Never expose it in browser code. The payload must contain `sub`, `email`, an
+`exp` Unix timestamp no more than five minutes away, and `aud` set to the
+host's exact HTTPS origin. Each valid token is accepted once.
 
 ```ts
 import { createHmac } from "node:crypto";

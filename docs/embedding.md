@@ -11,13 +11,17 @@ AURORA_EMBED_ALLOWED_ORIGINS=https://your-aurora.replit.app,https://your-product
 AURORA_EMBED_SSO_SECRET=<a-long-random-shared-secret>
 ```
 
-`AURORA_EMBED_ALLOWED_ORIGINS` must contain exact origins without a trailing slash. It controls CSP `frame-ancestors`, the API preflight allow-list, and which hosts can exchange a session token. The regular iframe session exchange is same-origin; direct cross-origin API calls are allowed only for an origin on this list.
+`AURORA_EMBED_ALLOWED_ORIGINS` must contain exact HTTPS origins without a trailing
+slash. Wildcards, paths, HTTP origins, and malformed values are rejected. It
+controls CSP `frame-ancestors`, the API preflight allow-list, and which hosts
+can exchange a session token. If it is unset, external framing and SSO are
+disabled rather than falling back to a broad development allow-list.
 
 The `/embed` page intentionally does not set `X-Frame-Options`: that header cannot safely allow selected cross-origin iframe hosts. CSP `frame-ancestors` is the modern allow-list used instead.
 
 ## Optional session sync
 
-The host mints a short-lived HMAC-SHA256 token with this JSON payload:
+The host mints a single-use HMAC-SHA256 token with this JSON payload:
 
 ```json
 {
@@ -29,7 +33,12 @@ The host mints a short-lived HMAC-SHA256 token with this JSON payload:
 }
 ```
 
-The token format is `base64url(payload).hex(hmac-sha256(payload))`. The `aud` claim is strongly recommended and must match the host origin. Aurora Global's `AuroraEmbed` component sends this token through `postMessage`; it is not put into the iframe URL.
+The token format is `base64url(payload).hex(hmac-sha256(payload))`. The `aud`
+claim is required and must match the host origin exactly. `exp` must be no more
+than five minutes in the future; sixty seconds is recommended. Layers stores a
+digest of a successfully exchanged token, so each token can mint a session only
+once. Aurora Global's `AuroraEmbed` component sends this token through
+`postMessage`; it is not put into the iframe URL.
 
 ## Host integration
 
