@@ -125,3 +125,51 @@ export function AuroraLayersEmbed({ src = "https://<your-published-url>/embed" }
 - Projects are saved per-origin (cloud + localStorage), so the embed keeps its own history.
 - Use a subdomain such as `layers.auroraperformancestudio.com` (custom domain in Publish
   settings) if you want the embed to share the main site's domain.
+
+## Putting Layers inside your Replit app (without losing the look)
+
+There are three ways. Ranked by how much of Aurora's appearance survives.
+
+### Option A — iframe embed (100% appearance, 5 minutes) — recommended
+1. Deploy this project anywhere (Lovable Publish, Vercel, Replit Deploy, your own box).
+2. Point a subdomain at it, e.g. `layers.auroraperformancestudio.com`.
+3. Drop the `<iframe src=".../embed">` snippet above into the Replit app.
+
+Why it never breaks: the studio loads its own CSS, fonts, tokens and JS inside the
+iframe. Your Replit app's Tailwind/global CSS cannot leak in, and Aurora's styles
+cannot leak out. Engines, Character Bible, storyboard, GPU compositing and exports
+all keep working because they run against this deployment's own API routes.
+
+Pass config through the URL: `/embed?engine=nano-banana-pro&mode=layers`.
+Talk to the host app via `postMessage` (already used for height sync).
+
+### Option B — copy the studio into the Replit app (source-level port)
+Only do this if the studio must share the host's auth/session directly.
+Copy, in this order:
+1. `src/styles.css` — all Aurora tokens, gradients, fonts. Merge into the host's
+   global CSS, keeping the `@theme` block and font `<link>` tags intact.
+2. `src/components/LayerStudio.tsx`, `src/components/DirectorAgent.tsx`,
+   `src/components/CharacterBibleEditor.tsx`, `src/components/video/*`.
+3. `src/lib/` — `auroraModels.ts`, `characterBible.ts`, `storyboard.ts`,
+   `streamImage.ts`, `gpuCompose.ts`.
+4. `src/routes/api/*` — `generate-image.ts`, `director.ts`, `production.ts`.
+   On Replit (Express/Next) these become one POST endpoint each; keep the SSE
+   response shape identical or streaming previews stop working.
+5. Env: `LOVABLE_API_KEY` (or your own gateway key) plus the Supabase URL/key.
+
+Gotchas that cause the "it looks different" problem:
+- The host app must not run its own CSS reset after Aurora's tokens.
+- Fonts (Archivo + JetBrains Mono) must be linked in the host `<head>`.
+- Tailwind v4 `@theme` variables are required — v3 config files will not read them.
+
+### Option C — native app (Play Store / App Store)
+Capacitor is already wired up:
+```bash
+npm run cap:sync          # build + sync both platforms
+npm run cap:ios           # opens Xcode
+npm run cap:android       # opens Android Studio
+```
+To keep the stores in sync with the web build without resubmitting, uncomment the
+`server.url` block in `capacitor.config.ts` and point it at your published
+`/embed` URL. Icons and splash live in `resources/`; app id is
+`com.auroraperformancestudio.layers`.
