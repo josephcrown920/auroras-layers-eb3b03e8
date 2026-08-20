@@ -1,18 +1,37 @@
-/**
- * Host <-> embed messaging contract for Aurora Layers.
- * Every message is namespaced so it can share a window with other widgets.
- */
+/** Host <-> iframe messaging contract for Aurora Layers. */
 export const EMBED_SOURCE = "aurora-layers";
 
-export type EmbedMessage =
+export type EmbedOutboundMessage =
   | { source: typeof EMBED_SOURCE; type: "ready" }
   | { source: typeof EMBED_SOURCE; type: "height"; height: number }
-  | { source: typeof EMBED_SOURCE; type: "auth"; status: "authenticated" | "error" }
+  | { source: typeof EMBED_SOURCE; type: "auth"; status: "authenticated" | "error" };
+
+export type EmbedInboundMessage =
   | { source: typeof EMBED_SOURCE; type: "sso"; token: string };
 
-function post(message: EmbedMessage) {
+/**
+ * Aurora's host widget appends its own origin to the iframe URL. This keeps
+ * postMessage traffic scoped to the actual host instead of broadcasting it.
+ */
+export function getEmbedHostOrigin(): string | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("hostOrigin");
+  if (!raw) return null;
+
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function post(message: EmbedOutboundMessage) {
   if (typeof window === "undefined" || window.parent === window) return;
-  window.parent.postMessage(message, "*");
+  // Height and readiness messages are non-sensitive. The fallback preserves
+  // backwards compatibility for hand-authored embeds; Aurora's widget always
+  // supplies a specific target origin.
+  window.parent.postMessage(message, getEmbedHostOrigin() ?? "*");
 }
 
 export function postReady() {
@@ -98,12 +117,25 @@ export function startHeightReporting(): () => void {
   };
 }
 
-/** Listens for an SSO token pushed by the host via postMessage. */
+/**
+ * Listens for an SSO token only from the exact host origin supplied in the
+ * embed URL. Without hostOrigin, postMessage SSO is intentionally disabled.
+ */
 export function onHostSsoToken(handler: (token: string) => void): () => void {
   if (typeof window === "undefined") return () => {};
+  const expectedOrigin = getEmbedHostOrigin();
+  if (!expectedOrigin) return () => {};
+
   const listener = (event: MessageEvent) => {
-    const data = event.data as EmbedMessage | undefined;
-    if (data?.source === EMBED_SOURCE && data.type === "sso" && data.token) {
+    if (event.origin !== expectedOrigin || event.source !== window.parent) return;
+    const data = event.data as EmbedInboundMessage | undefined;
+    if (
+      data?.source === EMBED_SOURCE &&
+      data.type === "sso" &&
+      typeof data.token === "string" &&
+      data.token.length > 0 &&
+      data.token.length <= 8192
+    ) {
       handler(data.token);
     }
   };

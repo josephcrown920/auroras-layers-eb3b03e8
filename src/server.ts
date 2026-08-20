@@ -1,6 +1,7 @@
 import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
+import { embedCorsHeaders } from "./lib/embedCors";
 import { renderErrorPage } from "./lib/error-page";
 
 type ServerEntry = {
@@ -35,6 +36,20 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   });
 }
 
+function isEmbedSessionRequest(request: Request): boolean {
+  return new URL(request.url).pathname === "/api/public/embed-session";
+}
+
+function withEmbedCors(response: Response, request: Request): Response {
+  if (!isEmbedSessionRequest(request)) return response;
+
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(embedCorsHeaders(request.headers.get("origin")))) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 function isH3SwallowedErrorBody(body: string): boolean {
   try {
     const payload = JSON.parse(body) as { unhandled?: unknown; message?: unknown };
@@ -46,16 +61,23 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    if (isEmbedSessionRequest(request) && request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: embedCorsHeaders(request.headers.get("origin")),
+      });
+    }
+
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return withEmbedCors(await normalizeCatastrophicSsrResponse(response), request);
     } catch (error) {
       console.error(error);
-      return new Response(renderErrorPage(), {
+      return withEmbedCors(new Response(renderErrorPage(), {
         status: 500,
         headers: { "content-type": "text/html; charset=utf-8" },
-      });
+      }), request);
     }
   },
 };

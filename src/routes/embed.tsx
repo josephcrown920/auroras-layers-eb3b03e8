@@ -13,8 +13,9 @@ import {
 
 /**
  * Origins allowed to frame the embed and call it. Configure with
- * AURORA_EMBED_ALLOWED_ORIGINS (comma separated). Falls back to a permissive
- * set so the embed keeps working before the env var is set.
+ * AURORA_EMBED_ALLOWED_ORIGINS (comma separated). Production deployments
+ * should configure exact origins; a Replit-only fallback keeps development
+ * embeds working before the variable is set.
  */
 function frameAncestors(): string {
   const raw =
@@ -22,7 +23,7 @@ function frameAncestors(): string {
   const list = raw
     .split(",")
     .map((value) => value.trim())
-    .filter(Boolean);
+    .filter((value) => /^https:\/\/(\*\.)?[a-z0-9.-]+(?::\d{1,5})?$/i.test(value));
   if (list.length > 0) return ["'self'", ...list].join(" ");
   return "'self' https://auroraperformancestudio.com https://*.auroraperformancestudio.com https://*.replit.app https://*.replit.dev https://*.repl.co https://*.lovable.app";
 }

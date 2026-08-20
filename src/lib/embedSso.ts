@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { getEmbedHostOrigin } from "@/lib/embedFrame";
 
 export type EmbedSsoStatus = "idle" | "pending" | "authenticated" | "error";
 
@@ -28,10 +29,13 @@ export function scrubSsoTokenFromUrl() {
  * Returns true when the embed ends up authenticated.
  */
 export async function signInWithEmbedToken(token: string): Promise<boolean> {
+  const hostOrigin = getEmbedHostOrigin();
+  if (!hostOrigin || token.length === 0 || token.length > 8192) return false;
+
   const response = await fetch(SSO_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ token, hostOrigin }),
   });
 
   if (!response.ok) return false;
