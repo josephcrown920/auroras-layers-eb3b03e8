@@ -3,11 +3,23 @@
  * The iframe normally calls this endpoint same-origin; these headers make the
  * approved-host policy explicit for browser preflights and error responses.
  */
-export function normalizeHttpOrigin(value: unknown): string | null {
+export function normalizeEmbedOrigin(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || value.length > 2048) return null;
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.origin : null;
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.hostname.includes("*") ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      value !== parsed.origin
+    ) {
+      return null;
+    }
+    return parsed.origin;
   } catch {
     return null;
   }
@@ -20,10 +32,14 @@ export function allowedEmbedOrigins(): string[] {
       raw
         .split(",")
         .map((value) => value.trim())
-        .map(normalizeHttpOrigin)
+        .map(normalizeEmbedOrigin)
         .filter((value): value is string => Boolean(value)),
     ),
   );
+}
+
+export function isAllowedEmbedOrigin(origin: string): boolean {
+  return allowedEmbedOrigins().includes(origin);
 }
 
 export function embedCorsHeaders(origin: string | null): Record<string, string> {

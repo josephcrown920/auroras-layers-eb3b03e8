@@ -19,7 +19,7 @@ sentence, and only that layer re-renders. Built on TanStack Start + Lovable AI.
 2. **Upload media** (optional). Any photo works — a selfie, a press shot, a still.
    With no upload, the prompt generates a fresh frame instead of editing one.
 3. **Write a layer prompt**, e.g. `Turn the outfit into full trap streetwear — puffer jacket,
-   iced-out cuban chains, designer shades`. Tap a preset chip to autofill.
+iced-out cuban chains, designer shades`. Tap a preset chip to autofill.
 4. Press **Run layer edit**. A blurred partial frame appears first, then sharpens into the
    final render.
 5. Right-click / long-press the output to save it.
@@ -72,54 +72,64 @@ Run button so you always know why a render didn't land.
 The studio ships an embed-only route: `/embed`. It renders the full LayerStudio
 with every brand token, gradient, engine and export intact — no landing page chrome.
 
-### 1. Plain HTML (any stack: Webflow, WordPress, Next, Replit, Framer)
+### 1. Drop-in script widget (any stack)
 
 ```html
-<iframe
-  id="aurora-layers"
-  src="https://<your-published-url>/embed"
-  style="width:100%;height:1400px;border:0;background:#0b0614;border-radius:24px"
-  allow="clipboard-write; camera"
-  loading="lazy"
-  title="Aurora Layers Studio"
-></iframe>
-<script>
-  window.addEventListener("message", (e) => {
-    if (e.data?.source === "aurora-layers" && e.data.type === "height") {
-      document.getElementById("aurora-layers").style.height = e.data.height + "px";
-    }
-  });
-</script>
+<div
+  data-aurora-layers
+  data-src="https://<your-published-url>/embed"
+  data-sso-token="<short-lived-signed-token>"
+></div>
+<script src="https://<your-published-url>/aurora-layers-embed.js" defer></script>
 ```
+
+The script adds `hostOrigin`, creates the iframe, validates every message against
+that iframe's exact origin, and keeps its height in sync. Omit `data-sso-token`
+to run as an unauthenticated standalone Layers session.
 
 ### 2. React component
 
 ```tsx
-export function AuroraLayersEmbed({ src = "https://<your-published-url>/embed" }) {
-  const ref = useRef<HTMLIFrameElement>(null);
-  useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (e.data?.source === "aurora-layers" && e.data.type === "height" && ref.current) {
-        ref.current.style.height = `${e.data.height}px`;
-      }
-    };
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, []);
-  return (
-    <iframe
-      ref={ref}
-      src={src}
-      title="Aurora Layers Studio"
-      className="w-full rounded-3xl border-0 bg-[#0b0614]"
-      style={{ height: 1400 }}
-      allow="clipboard-write; camera"
-    />
-  );
-}
+import { AuroraLayersEmbed } from "./AuroraLayersEmbed";
+
+<AuroraLayersEmbed
+  src="https://<your-published-url>/embed"
+  ssoToken={shortLivedEmbedToken}
+  onAuth={(status) => console.info("Layers session:", status)}
+/>;
+```
+
+Copy `src/components/embed/AuroraLayersEmbed.tsx` into any React host. It uses
+the same strict source/origin checks as the script widget and does not put the
+SSO token in the iframe URL.
+
+### 3. Sign a short-lived SSO token in the host
+
+Store the same `AURORA_EMBED_SSO_SECRET` in the host and Layers deployment.
+Never expose it in browser code. The payload must contain `sub`, `email`, an
+`exp` Unix timestamp no more than five minutes away, and `aud` set to the
+host's exact HTTPS origin. Each valid token is accepted once.
+
+```ts
+import { createHmac } from "node:crypto";
+
+const payload = {
+  sub: currentUser.id,
+  email: currentUser.email,
+  name: currentUser.name,
+  aud: "https://your-aurora-domain.example",
+  exp: Math.floor(Date.now() / 1000) + 60,
+};
+
+const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+const signature = createHmac("sha256", process.env.AURORA_EMBED_SSO_SECRET!)
+  .update(body)
+  .digest("hex");
+const shortLivedEmbedToken = `${body}.${signature}`;
 ```
 
 ### Notes
+
 - Appearance and settings are preserved because the studio runs on its own deployment;
   the host site's CSS never touches it.
 - Projects are saved per-origin (cloud + localStorage), so the embed keeps its own history.
@@ -131,6 +141,7 @@ export function AuroraLayersEmbed({ src = "https://<your-published-url>/embed" }
 There are three ways. Ranked by how much of Aurora's appearance survives.
 
 ### Option A — iframe embed (100% appearance, 5 minutes) — recommended
+
 1. Deploy this project anywhere (Lovable Publish, Vercel, Replit Deploy, your own box).
 2. Point a subdomain at it, e.g. `layers.auroraperformancestudio.com`.
 3. Drop the `<iframe src=".../embed">` snippet above into the Replit app.
@@ -144,8 +155,10 @@ Pass config through the URL: `/embed?engine=nano-banana-pro&mode=layers`.
 Talk to the host app via `postMessage` (already used for height sync).
 
 ### Option B — copy the studio into the Replit app (source-level port)
+
 Only do this if the studio must share the host's auth/session directly.
 Copy, in this order:
+
 1. `src/styles.css` — all Aurora tokens, gradients, fonts. Merge into the host's
    global CSS, keeping the `@theme` block and font `<link>` tags intact.
 2. `src/components/LayerStudio.tsx`, `src/components/DirectorAgent.tsx`,
@@ -158,17 +171,21 @@ Copy, in this order:
 5. Env: `LOVABLE_API_KEY` (or your own gateway key) plus the Supabase URL/key.
 
 Gotchas that cause the "it looks different" problem:
+
 - The host app must not run its own CSS reset after Aurora's tokens.
 - Fonts (Archivo + JetBrains Mono) must be linked in the host `<head>`.
 - Tailwind v4 `@theme` variables are required — v3 config files will not read them.
 
 ### Option C — native app (Play Store / App Store)
+
 Capacitor is already wired up:
+
 ```bash
 npm run cap:sync          # build + sync both platforms
 npm run cap:ios           # opens Xcode
 npm run cap:android       # opens Android Studio
 ```
+
 To keep the stores in sync with the web build without resubmitting, uncomment the
 `server.url` block in `capacitor.config.ts` and point it at your published
 `/embed` URL. Icons and splash live in `resources/`; app id is

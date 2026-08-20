@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { LayerStudio } from "@/components/LayerStudio";
+import { allowedEmbedOrigins } from "@/lib/embedCors";
 import { onHostSsoToken, postAuth, postReady, startHeightReporting } from "@/lib/embedFrame";
 import {
   hasSession,
@@ -13,19 +14,11 @@ import {
 
 /**
  * Origins allowed to frame the embed and call it. Configure with
- * AURORA_EMBED_ALLOWED_ORIGINS (comma separated). Production deployments
- * should configure exact origins; a Replit-only fallback keeps development
- * embeds working before the variable is set.
+ * AURORA_EMBED_ALLOWED_ORIGINS (comma separated). Values must be exact HTTPS
+ * origins; no configured origin means external framing is disabled.
  */
 function frameAncestors(): string {
-  const raw =
-    typeof process !== "undefined" ? (process.env?.["AURORA_EMBED_ALLOWED_ORIGINS"] ?? "") : "";
-  const list = raw
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => /^https:\/\/(\*\.)?[a-z0-9.-]+(?::\d{1,5})?$/i.test(value));
-  if (list.length > 0) return ["'self'", ...list].join(" ");
-  return "'self' https://auroraperformancestudio.com https://*.auroraperformancestudio.com https://*.replit.app https://*.replit.dev https://*.repl.co https://*.lovable.app";
+  return ["'self'", ...allowedEmbedOrigins()].join(" ");
 }
 
 export const Route = createFileRoute("/embed")({
