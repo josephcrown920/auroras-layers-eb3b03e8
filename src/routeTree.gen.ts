@@ -14,6 +14,7 @@ import { Route as EmbedRouteImport } from './routes/embed'
 import { Route as ApiDirectorRouteImport } from './routes/api/director'
 import { Route as ApiGenerateImageRouteImport } from './routes/api/generate-image'
 import { Route as ApiProductionRouteImport } from './routes/api/production'
+import { Route as ApiPublicEmbedSessionRouteImport } from './routes/api/public/embed-session'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,6 +41,11 @@ const ApiProductionRoute = ApiProductionRouteImport.update({
   path: '/api/production',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicEmbedSessionRoute = ApiPublicEmbedSessionRouteImport.update({
+  id: '/api/public/embed-session',
+  path: '/api/public/embed-session',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/api/director': typeof ApiDirectorRoute
   '/api/generate-image': typeof ApiGenerateImageRoute
   '/api/production': typeof ApiProductionRoute
+  '/api/public/embed-session': typeof ApiPublicEmbedSessionRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/api/director': typeof ApiDirectorRoute
   '/api/generate-image': typeof ApiGenerateImageRoute
   '/api/production': typeof ApiProductionRoute
+  '/api/public/embed-session': typeof ApiPublicEmbedSessionRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,14 +70,25 @@ export interface FileRoutesById {
   '/api/director': typeof ApiDirectorRoute
   '/api/generate-image': typeof ApiGenerateImageRoute
   '/api/production': typeof ApiProductionRoute
+  '/api/public/embed-session': typeof ApiPublicEmbedSessionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/embed' | '/api/director' | '/api/generate-image' | '/api/production'
+    | '/'
+    | '/embed'
+    | '/api/director'
+    | '/api/generate-image'
+    | '/api/production'
+    | '/api/public/embed-session'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/embed' | '/api/director' | '/api/generate-image' | '/api/production'
+    | '/'
+    | '/embed'
+    | '/api/director'
+    | '/api/generate-image'
+    | '/api/production'
+    | '/api/public/embed-session'
   id:
     | '__root__'
     | '/'
@@ -77,6 +96,7 @@ export interface FileRouteTypes {
     | '/api/director'
     | '/api/generate-image'
     | '/api/production'
+    | '/api/public/embed-session'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -85,6 +105,7 @@ export interface RootRouteChildren {
   ApiDirectorRoute: typeof ApiDirectorRoute
   ApiGenerateImageRoute: typeof ApiGenerateImageRoute
   ApiProductionRoute: typeof ApiProductionRoute
+  ApiPublicEmbedSessionRoute: typeof ApiPublicEmbedSessionRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -124,6 +145,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProductionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/embed-session': {
+      id: '/api/public/embed-session'
+      path: '/api/public/embed-session'
+      fullPath: '/api/public/embed-session'
+      preLoaderRoute: typeof ApiPublicEmbedSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -133,6 +161,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDirectorRoute: ApiDirectorRoute,
   ApiGenerateImageRoute: ApiGenerateImageRoute,
   ApiProductionRoute: ApiProductionRoute,
+  ApiPublicEmbedSessionRoute: ApiPublicEmbedSessionRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

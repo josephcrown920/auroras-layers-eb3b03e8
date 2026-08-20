@@ -1,10 +1,45 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { LayerStudio } from "@/components/LayerStudio";
+import { onHostSsoToken, postAuth, postReady, startHeightReporting } from "@/lib/embedFrame";
+import {
+  hasSession,
+  readSsoTokenFromUrl,
+  scrubSsoTokenFromUrl,
+  signInWithEmbedToken,
+  type EmbedSsoStatus,
+} from "@/lib/embedSso";
+
+/**
+ * Origins allowed to frame the embed and call it. Configure with
+ * AURORA_EMBED_ALLOWED_ORIGINS (comma separated). Falls back to a permissive
+ * set so the embed keeps working before the env var is set.
+ */
+function frameAncestors(): string {
+  const raw =
+    typeof process !== "undefined" ? (process.env?.["AURORA_EMBED_ALLOWED_ORIGINS"] ?? "") : "";
+  const list = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (list.length > 0) return ["'self'", ...list].join(" ");
+  return "'self' https://auroraperformancestudio.com https://*.auroraperformancestudio.com https://*.replit.app https://*.replit.dev https://*.repl.co https://*.lovable.app";
+}
 
 export const Route = createFileRoute("/embed")({
   component: EmbedPage,
+  // Server response headers for the embed document.
+  // NOTE: X-Frame-Options is intentionally NOT set — it cannot express an
+  // allow-list and would block framing entirely. CSP frame-ancestors is the
+  // modern replacement and every current browser honours it.
+  headers: () => ({
+    "Content-Security-Policy": `frame-ancestors ${frameAncestors()}`,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+  }),
   head: () => ({
     meta: [
       { title: "Aurora Layers Studio — Embedded Editor" },
@@ -27,23 +62,58 @@ export const Route = createFileRoute("/embed")({
 });
 
 function EmbedPage() {
-  // Report height to the host page so the iframe can auto-size.
+  const [sso, setSso] = useState<EmbedSsoStatus>("idle");
+
+  // Auto-size the iframe in the host layout.
   useEffect(() => {
-    const post = () => {
-      window.parent?.postMessage(
-        { source: "aurora-layers", type: "height", height: document.body.scrollHeight },
-        "*",
-      );
+    postReady();
+    return startHeightReporting();
+  }, []);
+
+  // Optional token SSO: ?sso=<token> on the iframe URL, or a postMessage
+  // { source: "aurora-layers", type: "sso", token } from the host.
+  useEffect(() => {
+    let cancelled = false;
+
+    const exchange = async (token: string) => {
+      if (cancelled) return;
+      setSso("pending");
+      const ok = await signInWithEmbedToken(token);
+      if (cancelled) return;
+      scrubSsoTokenFromUrl();
+      setSso(ok ? "authenticated" : "error");
+      postAuth(ok ? "authenticated" : "error");
     };
-    post();
-    const ro = new ResizeObserver(post);
-    ro.observe(document.body);
-    return () => ro.disconnect();
+
+    void (async () => {
+      if (await hasSession()) {
+        if (!cancelled) setSso("authenticated");
+        return;
+      }
+      const token = readSsoTokenFromUrl();
+      if (token) void exchange(token);
+    })();
+
+    const off = onHostSsoToken((token) => void exchange(token));
+    return () => {
+      cancelled = true;
+      off();
+    };
   }, []);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-6xl px-4 py-8">
+        {sso === "pending" && (
+          <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+            Syncing your session…
+          </p>
+        )}
+        {sso === "error" && (
+          <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.2em] text-destructive">
+            Session sync failed — working in local mode
+          </p>
+        )}
         <LayerStudio />
       </div>
     </main>
