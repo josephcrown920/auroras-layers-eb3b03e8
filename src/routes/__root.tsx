@@ -128,6 +128,25 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    (async () => {
+      try {
+        await StatusBar.setStyle({ style: "DARK" as never });
+        if (Capacitor.getPlatform() === "android") {
+          await StatusBar.setBackgroundColor({ color: "#0b0614" });
+        }
+      } catch {
+        /* status bar unavailable */
+      }
+      try {
+        await SplashScreen.hide();
+      } catch {
+        /* splash already hidden */
+      }
+    })();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
