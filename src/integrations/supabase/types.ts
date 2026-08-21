@@ -94,27 +94,6 @@ export type Database = {
         }
         Relationships: []
       }
-      aurora_embed_sso_tokens: {
-        Row: {
-          created_at: string
-          expires_at: string
-          host_origin: string
-          token_hash: string
-        }
-        Insert: {
-          created_at?: string
-          expires_at: string
-          host_origin: string
-          token_hash: string
-        }
-        Update: {
-          created_at?: string
-          expires_at?: string
-          host_origin?: string
-          token_hash?: string
-        }
-        Relationships: []
-      }
       aurora_projects: {
         Row: {
           brain_model: string
